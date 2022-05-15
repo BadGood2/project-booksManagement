@@ -1,8 +1,13 @@
 const bookModel = require("../models/bookModel")
 const reviewModel = require("../models/reviewModel")
 const mongoose = require("mongoose");
-const userModel = require("../models/userModel");
 
+//check Validity
+const isValid = (value) => {
+  if (typeof value === 'undefined' || value === null) return false
+  if (typeof value === 'string' && value.trim().length === 0) return false
+  return true;
+}
 
 //Create Book
 const createBook = async function (req, res) {
@@ -12,53 +17,55 @@ const createBook = async function (req, res) {
     let findISBN = await bookModel.findOne({ ISBN: data.ISBN })
     let isbnRegex = /^(?:ISBN(?:-1[03])?:?●)?(?=[0-9X]{10}$|(?=(?:[0-9]+[-●]){3})[-●0-9X]{13}$|97[89][0-9]{10}$|(?=(?:[0-9]+[-●]){4})[-●0-9]{17}$)(?:97[89][-●]?)?[0-9]{1,5}[-●]?[0-9]+[-●]?[0-9]+[-●]?[0-9X]$/
 
-    function isPresent(value) {
-      if (!value || value.trim().length == 0)
-        return false;
-      else return true;
-    }
     function badRequest() {
       let error = []
 
       //check if title is present
-      if (!isPresent(data.title))
+      if (!isValid(data.title))
         error.push("title is required")
+
       //checks for duplicate title
       if (findTitle)
         error.push("book with same title is already present")
 
       //check if excerpt is present
-      if (!isPresent(data.excerpt))
+      if (!isValid(data.excerpt))
         error.push("excerpt is required")
 
-      //check if userId is present
-      if (!isPresent(data.userId))
-        error.push("userId is required")
-
       //check if ISBN is present
-      if (!isPresent(data.ISBN))
+      if (!isValid(data.ISBN))
         error.push("ISBN is required")
       //checks for valid ISBN
-      if (data.ISBN && !data.ISBN.trim().match(isbnRegex))
+      if (data.ISBN?.trim() && !data.ISBN.trim().match(isbnRegex))
         error.push("enter valid ISBN")
       //checks for duplicate ISBN
       if (findISBN)
         error.push("book with same ISBN is already present")
 
       //check if category is present
-      if (!isPresent(data.category))
+      if (!isValid(data.category))
         error.push("category is required")
+      //checks for valid catagory
+      if (data.category?.trim() && data.category.trim().match(/[^-_a-zA-Z]/))
+        error.push("enter valid category")
 
-      //check if subcategory is present
-      if (!data.subcategory || data.subcategory.length == 0 || data.subcategory.some(x => x.match(/[^_a-zA-Z]/)))
-        error.push("subcategory is required or invalid")
+      //checks for valid subcategory conditions
+      if(data.hasOwnProperty('subcategory')){
+        if(Array.isArray(data.subcategory)){
+          if(!data.subcategory.some(x => x.trim()) || data.subcategory.some(x => x.match(/[^-_a-zA-Z]/)))
+            error.push('subcategory values are Invalid')
+        }else if(!isValid(data.subcategory))
+          error.push('subcategory is required')
+        else if(data.subcategory?.trim() && data.subcategory.match(/[^-_a-zA-Z]/))
+          error.push('subcategory values are Invalid')
+      }else error.push('subcategory is required')
 
-      //check if releasedAt is present
-      if (!isPresent(data.releasedAt))
+      //check if releasedAt Date is present
+      if (!isValid(data.releasedAt))
         error.push("releasedAt is required")
-      //check for releasedAt format
-      if (data.releasedAt && !data.releasedAt.trim().match(/^\d{4}[-]\d{2}[-]\d{2}$/))
-        error.push(`releasedAt must in "YYYY-MM-DD" format`)
+      //check for releasedAt Date format
+      if (data.releasedAt?.trim() && !data.releasedAt.trim().match(/^(19|20)\d\d[-](0[1-9]|1[0-2])[-](0[1-9]|[12][0-9]|3[01])$/))
+        error.push(`enter valid date in 'YYYY-MM-DD' format`)
 
       if (error.length > 0)
         return error;
@@ -66,16 +73,12 @@ const createBook = async function (req, res) {
 
     if (badRequest()) {
       let err = badRequest();
-      if (typeof err == "string")
-        return res.status(400).send({ status: false, msg: err })
-      return res.status(400).send({ status: false, msg: err.join(', ') })
+      return res.status(400).send({ status: false, msg: err })
     }
 
-    if (!await userModel.findById(data.userId))
-      return res.status(404).send({ status: false, message: "user not found" })
-
+    if(Array.isArray(data.subcategory))
     data.subcategory = data.subcategory.filter(x => x)
-
+    data.isDeleted = false
     let created = await bookModel.create(data)
     res.status(201).send({ status: true, message: "Success", data: created })
   } catch (error) {
@@ -92,7 +95,7 @@ const getBooks = async function (req, res) {
 
       if (allBooks.length == 0)
         return res.status(404).send({ status: false, message: "No books exists" })
-      return res.status(200).send({ status: true, message: "Success", data: allBooks })
+      return res.status(200).send({ status: true, message: `Books List`, data: allBooks })
     }
     //- Filter books list by applying filters. Query param can have any combination of below filters.
     // - By userId
@@ -109,7 +112,7 @@ const getBooks = async function (req, res) {
       if (allBooks.length == 0)
         return res.status(400).send({ status: false, message: "No books with selected query params" })
 
-      res.status(200).send({ status: true, message: "Success", data: allBooks })
+      res.status(200).send({ status: true, message: `Books List`, data: allBooks })
     }
   }
   catch (error) {
@@ -146,17 +149,15 @@ const getBooksReviews = async function (req, res) {
 const updateBook = async (req, res) => {
   let data = req.body
   let bookId = req.params.bookId
-  let titleRegEx = /^[-'*",._ a-zA-Z0-9]+$/
+  // let titleRegEx = /^[-'*",._ a-zA-Z0-9]+$/
   let ISBN_RegEx = /^(?:ISBN(?:-1[03])?:?●)?(?=[0-9X]{10}$|(?=(?:[0-9]+[-●]){3})[-●0-9X]{13}$|97[89][0-9]{10}$|(?=(?:[0-9]+[-●]){4})[-●0-9]{17}$)(?:97[89][-●]?)?[0-9]{1,5}[-●]?[0-9]+[-●]?[0-9]+[-●]?[0-9X]$/
   let error = []
 
-  const isValid = function (value) {
-    if (typeof value === 'undefined' || value === null) return false
-    if (typeof value === 'string' && value.trim().length === 0) return false
-    return true;
-  }
-
   try {
+    let err = Object.keys(data).filter(x => !['title','excerpt','releasedAt','ISBN'].includes(x))
+    if(err.length) 
+      return res.status(400).send({status:false, message:err.join(', ')+`${err.length>1?' are Invalid fields.':' is an Invalid field.'}`})
+
     let findBook = await bookModel.findOne({ _id: bookId, isDeleted: false })
     if (!findBook)
       return res.status(404).send({ status: false, message: "There is No Book available with this bookId." })
@@ -166,9 +167,6 @@ const updateBook = async (req, res) => {
 
     if (data.hasOwnProperty('title') && !isValid(data.title))
       error.push("Title can't be empty")
-
-    if (data.title?.trim() && !titleRegEx.test(data.title.trim()))
-      error.push('Title is Invalid')
 
     if (data.title?.trim() && await bookModel.findOne({ title: data.title }))
       error.push('Title is already present')
@@ -185,7 +183,7 @@ const updateBook = async (req, res) => {
     if (data.hasOwnProperty('releasedAt') && !isValid(data.releasedAt))
       error.push("releasedAt Date can't be empty")
 
-    if (data.releasedAt?.trim() && !(/^\d{4}[-]\d{2}[-]\d{2}$/).test(data.releasedAt.trim()))
+    if (data.releasedAt?.trim() && !(/^(19|20)\d\d[-](0[1-9]|1[0-2])[-](0[1-9]|[12][0-9]|3[01])$/).test(data.releasedAt.trim()))
       error.push('releasedAt Date is Invalid')
 
     if (error.length > 0)
