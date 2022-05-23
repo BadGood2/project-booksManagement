@@ -1,5 +1,6 @@
 const bookModel = require("../models/bookModel")
 const reviewModel = require("../models/reviewModel")
+const aws = require("aws-sdk")
 const mongoose = require("mongoose");
 
 //check Validity
@@ -9,13 +10,66 @@ const isValid = (value) => {
   return true;
 }
 
+//aws
+aws.config.update({
+  accessKeyId: "AKIAY3L35MCRUJ6WPO6J",
+  secretAccessKey: "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",
+  region: "ap-south-1"
+})
+
+let uploadFile = async (file) => {
+  return new Promise(function (resolve, reject) {
+    // this function will upload file to aws and return the link
+    let s3 = new aws.S3({ apiVersion: '2006-03-01' }); // we will be using the s3 service of aws
+
+    var uploadParams = {
+      ACL: "public-read",
+      Bucket: "classroom-training-bucket",  //HERE
+      Key: "abcd/" + file.originalname, //HERE 
+      Body: file.buffer
+    }
+
+
+    s3.upload(uploadParams, function (err, data) {
+      if (err) {
+        return reject({ "error": err })
+      }
+      console.log(data)
+      console.log("file uploaded succesfully")
+      return resolve(data.Location)
+    })
+
+    // let data= await s3.upload( uploadParams)
+    // if( data) return data.Location
+    // else return "there is an error"
+
+  })
+}
+
+
+
 //Create Book
 const createBook = async function (req, res) {
   try {
-    let data = req.body
+    let data = req.body.body
+    data = JSON.parse(data)
+    data.isDeleted = false
+    let uploadedFileURL
     let findTitle = await bookModel.findOne({ title: data.title }).collation({ locale: "en", strength: 2 })
     let findISBN = await bookModel.findOne({ ISBN: data.ISBN })
     let isbnRegex = /^(?:ISBN(?:-1[03])?:?●)?(?=[0-9X]{10}$|(?=(?:[0-9]+[-●]){3})[-●0-9X]{13}$|97[89][0-9]{10}$|(?=(?:[0-9]+[-●]){4})[-●0-9]{17}$)(?:97[89][-●]?)?[0-9]{1,5}[-●]?[0-9]+[-●]?[0-9]+[-●]?[0-9X]$/
+
+
+    try {
+      let files = req.files
+      if (files && files.length > 0) {
+        uploadedFileURL = await uploadFile(files[0])
+      }
+    } catch (err) {
+      return res.status(400).send({ status: false, msg: err.message })
+    }
+
+    data.bookCover = uploadedFileURL
 
     function badRequest() {
       let error = []
@@ -50,15 +104,15 @@ const createBook = async function (req, res) {
         error.push("enter valid category")
 
       //checks for valid subcategory conditions
-      if(data.hasOwnProperty('subcategory')){
-        if(Array.isArray(data.subcategory)){
-          if(!data.subcategory.some(x => x.trim()) || data.subcategory.some(x => x.match(/[^-_a-zA-Z]/)))
+      if (data.hasOwnProperty('subcategory')) {
+        if (Array.isArray(data.subcategory)) {
+          if (!data.subcategory.some(x => x.trim()) || data.subcategory.some(x => x.match(/[^-_a-zA-Z]/)))
             error.push('subcategory values are Invalid')
-        }else if(!isValid(data.subcategory))
+        } else if (!isValid(data.subcategory))
           error.push('subcategory is required')
-        else if(data.subcategory?.trim() && data.subcategory.match(/[^-_a-zA-Z]/))
+        else if (data.subcategory?.trim() && data.subcategory.match(/[^-_a-zA-Z]/))
           error.push('subcategory values are Invalid')
-      }else error.push('subcategory is required')
+      } else error.push('subcategory is required')
 
       //check if releasedAt Date is present
       if (!isValid(data.releasedAt))
@@ -76,9 +130,11 @@ const createBook = async function (req, res) {
       return res.status(400).send({ status: false, msg: err })
     }
 
-    if(Array.isArray(data.subcategory))
-    data.subcategory = data.subcategory.filter(x => x)
-    data.isDeleted = false
+
+
+
+    if (Array.isArray(data.subcategory))
+      data.subcategory = data.subcategory.filter(x => x)
     let created = await bookModel.create(data)
     res.status(201).send({ status: true, message: "Success", data: created })
   } catch (error) {
@@ -154,9 +210,9 @@ const updateBook = async (req, res) => {
   let error = []
 
   try {
-    let err = Object.keys(data).filter(x => !['title','excerpt','releasedAt','ISBN'].includes(x))
-    if(err.length) 
-      return res.status(400).send({status:false, message:err.join(', ')+`${err.length>1?' are Invalid fields.':' is an Invalid field.'}`})
+    let err = Object.keys(data).filter(x => !['title', 'excerpt', 'releasedAt', 'ISBN'].includes(x))
+    if (err.length)
+      return res.status(400).send({ status: false, message: err.join(', ') + `${err.length > 1 ? ' are Invalid fields.' : ' is an Invalid field.'}` })
 
     let findBook = await bookModel.findOne({ _id: bookId, isDeleted: false })
     if (!findBook)
@@ -179,7 +235,7 @@ const updateBook = async (req, res) => {
 
     if (data.ISBN?.trim() && await bookModel.findOne({ ISBN: data.ISBN }))
       error.push('ISBN is already present')
-    
+
     if (data.hasOwnProperty('releasedAt') && !isValid(data.releasedAt))
       error.push("releasedAt Date can't be empty")
 
@@ -216,7 +272,7 @@ const deleteBooksBYId = async function (req, res) {
     if (!updateBook)  // change -- add this for book not exist 
       return res.status(404).send({ status: false, message: 'book not found or already deleted' })
     res.status(200).send({ status: true, message: 'sucessfully deleted', data: updateBook })
-    
+
   } catch (error) {
     res.status(500).send({ status: false, error: error.message });
   }

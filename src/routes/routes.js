@@ -1,4 +1,5 @@
 const express = require('express');
+const aws= require("aws-sdk");
 const router = express.Router();
 const { registerUser } = require("../controller/userController")
 const { userLogin } = require("../controller/loginController")
@@ -7,12 +8,15 @@ const { userAuthor } = require("../middleware/authorization")
 const { createBook, getBooks, updateBook, deleteBooksBYId, getBooksReviews } = require("../controller/bookController")
 const {createReview, updateReview, deleteReview} = require("../controller/reviewController")
 
+//aws-s3
+
+
 //User API Route Handlers
 router.post("/register", registerUser)
 router.post("/login", userLogin)
 
 //Book API Route Handlers. Make sure that only the owner of the books is able to create, edit or delete the book.
-router.post("/books",userAuthentication,userAuthor, createBook)
+router.post("/books", createBook)
 router.get("/books",userAuthentication, getBooks)
 router.get("/books/:bookId",userAuthentication, getBooksReviews)
 router.put("/books/:bookId", userAuthentication, userAuthor, updateBook)
